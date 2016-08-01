@@ -2,6 +2,7 @@
 from setuptools import setup
 import asteval
 
+
 long_description = """ASTEVAL provides a numpy-aware, safe(ish) 'eval' function
 
 Emphasis is on mathematical expressions, and so numpy ufuncs
@@ -36,4 +37,10 @@ setup(name='asteval',
           'Programming Language :: Python :: 3.4',
           'Programming Language :: Python :: 3.5',
       ],
+      tests_require=['ddt'],
+      extras_require={
+          ':python_version == "2.7"': [  # See PEP-426
+              'mock',
+          ],
+      },
       )

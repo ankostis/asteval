@@ -3,6 +3,7 @@
 Base TestCase for asteval
 """
 import ast
+import ddt
 import os
 import time
 import unittest
@@ -19,6 +20,11 @@ if PY3:
 else:
     # noinspection PyUnresolvedReferences
     from cStringIO import StringIO
+
+try:
+    from unittest import mock
+except ImportError: # PY2
+    import mock # @UnusedImport
 
 from asteval import NameFinder, Interpreter
 
@@ -141,42 +147,58 @@ class TestCase(unittest.TestCase):
                 self.assertTrue(False)
 
 
+@ddt.ddt
 class TestEval(TestCase):
     """testing of asteval"""
 
-    def test_dict_index(self):
+    @ddt.data(
+        "a_dict['a'] == 1",
+        "a_dict['d'] == 4",
+    )
+    def test_dict_index(self, expr):
         """dictionary indexing"""
         self.interp("a_dict = {'a': 1, 'b': 2, 'c': 3, 'd': 4}")
-        self.istrue("a_dict['a'] == 1")
-        self.istrue("a_dict['d'] == 4")
+        self.istrue(expr)
 
-    def test_list_index(self):
+    @ddt.data(
+        "a_list[0] == 'a'",
+        "a_list[1] == 'b'",
+        "a_list[2] == 'c'",
+    )
+    def test_list_index(self, expr):
         """list indexing"""
         self.interp("a_list = ['a', 'b', 'c', 'd', 'o']")
-        self.istrue("a_list[0] == 'a'")
-        self.istrue("a_list[1] == 'b'")
-        self.istrue("a_list[2] == 'c'")
+        self.istrue(expr)
 
-    def test_tuple_index(self):
+    @ddt.data(
+        "a_tuple[0] == 5",
+        "a_tuple[2] == 'x'",
+    )
+    def test_tuple_index(self, expr):
         """tuple indexing"""
         self.interp("a_tuple = (5, 'a', 'x')")
-        self.istrue("a_tuple[0] == 5")
-        self.istrue("a_tuple[2] == 'x'")
+        self.istrue(expr)
 
-    def test_string_index(self):
+    @ddt.data(
+        "a_string[0] == 'h'",
+        "a_string[6] == 'w'",
+        "a_string[-1] == 'd'",
+        "a_string[-2] == 'l'",
+    )
+    def test_string_index(self, expr):
         """string indexing"""
         self.interp("a_string = 'hello world'")
-        self.istrue("a_string[0] == 'h'")
-        self.istrue("a_string[6] == 'w'")
-        self.istrue("a_string[-1] == 'd'")
-        self.istrue("a_string[-2] == 'l'")
+        self.istrue(expr)
 
-    def test_ndarray_index(self):
+    @unittest.skipIf(not HAS_NUMPY, "numpy not installed")
+    @ddt.data(
+        "a_ndarray[2] == 10",
+        "a_ndarray[4] == 20",
+    )
+    def test_ndarray_index(self, expr):
         """nd array indexing"""
-        if HAS_NUMPY:
-            self.interp("a_ndarray = 5*arange(20)")
-            self.istrue("a_ndarray[2] == 10")
-            self.istrue("a_ndarray[4] == 20")
+        self.interp("a_ndarray = 5*arange(20)")
+        self.istrue(expr)
 
     def test_ndarrayslice(self):
         """array slicing"""
@@ -340,22 +362,31 @@ else:
         self.isvalue("rep_x", "1")
         self.isvalue("rep_y", "['a', 'b', 'c']")
 
-    def test_cmp(self):
-        """numeric comparisons"""
-        self.istrue("3 == 3")
-        self.istrue("3.0 == 3")
-        self.istrue("3.0 == 3.0")
-        self.istrue("3 != 4")
-        self.istrue("3.0 != 4")
-        self.istrue("3 >= 1")
-        self.istrue("3 >= 3")
-        self.istrue("3 <= 3")
-        self.istrue("3 <= 5")
-        self.istrue("3 < 5")
-        self.istrue("5 > 3")
-        self.isfalse("3 == 4")
-        self.isfalse("3 > 5")
-        self.isfalse("5 < 3")
+    @ddt.data(
+        "3 == 3",
+        "3.0 == 3",
+        "3.0 == 3.0",
+        "3 != 4",
+        "3.0 != 4",
+        "3 >= 1",
+        "3 >= 3",
+        "3 <= 3",
+        "3 <= 5",
+        "3 < 5",
+        "5 > 3",
+    )
+    def test_cmp1(self, expr):
+        """numeric comparisons true"""
+        self.istrue(expr)
+
+    @ddt.data(
+        "3 == 4",
+        "3 > 5",
+        "5 < 3",
+    )
+    def test_cmp2(self, expr):
+        """numeric comparisons false"""
+        self.isfalse(expr)
 
     def test_bool(self):
         """boolean logic"""
@@ -455,28 +486,31 @@ a = arange(7)""")
             self.assertTrue(failed)
             self.check_error('SyntaxError')
 
-    def test_runtimeerrors_1(self):
+    @ddt.data(
+        ('x = 1/zero', 'ZeroDivisionError'),
+        ('x = zero + nonexistent', 'NameError'),
+        ('x = zero + astr', 'TypeError'),
+        ('x = zero()', 'TypeError'),
+        ('x = astr * atup', 'TypeError'),
+        ('x = arr.shapx', 'AttributeError'),
+        ('arr.shapx = 4', 'AttributeError'),
+        ('del arr.shapx', 'KeyError'),
+    )
+    def test_runtimeerrors_1(self, case):
         """runtime errors test"""
+        expr, errname = case
         self.interp("zero = 0")
         self.interp("astr ='a string'")
         self.interp("atup = ('a', 'b', 11021)")
         self.interp("arr  = arange(20)")
-        for expr, errname in (('x = 1/zero', 'ZeroDivisionError'),
-                              ('x = zero + nonexistent', 'NameError'),
-                              ('x = zero + astr', 'TypeError'),
-                              ('x = zero()', 'TypeError'),
-                              ('x = astr * atup', 'TypeError'),
-                              ('x = arr.shapx', 'AttributeError'),
-                              ('arr.shapx = 4', 'AttributeError'),
-                              ('del arr.shapx', 'KeyError')):
-            failed, errtype, errmsg = False, None, None
-            # noinspection PyBroadException
-            try:
-                self.interp(expr, show_errors=False)
-            except:
-                failed = True
-            self.assertTrue(failed)
-            self.check_error(errname)
+        failed, errtype, errmsg = False, None, None
+        # noinspection PyBroadException
+        try:
+            self.interp(expr, show_errors=False)
+        except:
+            failed = True
+        self.assertTrue(failed)
+        self.check_error(errname)
 
     # noinspection PyUnresolvedReferences
     def test_ndarrays(self):
@@ -839,8 +873,8 @@ class TestCase2(unittest.TestCase):
         """ test using stringio for output/errors """
         out = StringIO()
         err = StringIO()
-        intrep = Interpreter(writer=out, err_writer=err)
-        intrep("print('out')")
+        interp = Interpreter(writer=out, err_writer=err)
+        interp("print('out')")
         self.assertEqual(out.getvalue(), 'out\n')
 
 
